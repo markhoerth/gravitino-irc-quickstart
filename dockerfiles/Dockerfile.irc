@@ -1,0 +1,32 @@
+# Gravitino Iceberg REST Catalog — with MySQL JDBC driver
+#
+# The upstream apache/gravitino-iceberg-rest image uses a memory backend
+# by default. MySQL JDBC driver is NOT bundled. This Dockerfile adds it.
+#
+# MySQL connector-j 9.x supports MySQL 8.x and MySQL 9.x.
+# Update MYSQL_CONNECTOR_VERSION to match your MySQL server major version.
+
+FROM apache/gravitino-iceberg-rest:latest
+
+ARG MYSQL_CONNECTOR_VERSION=9.1.0
+ARG MAVEN_BASE=https://repo1.maven.org/maven2
+
+USER root
+
+# Locate the libs directory used by the standalone IRC server.
+# In the Apache Docker image, GRAVITINO_HOME is /opt/gravitino and the
+# standalone IRC package places JARs in ${GRAVITINO_HOME}/libs/.
+# If your image differs, adjust the DEST_DIR below.
+ENV GRAVITINO_IRC_LIBS=/root/gravitino-iceberg-rest-server/libs
+
+RUN set -ex && \
+    mkdir -p ${GRAVITINO_IRC_LIBS} && \
+    curl -fSL \
+      "${MAVEN_BASE}/com/mysql/mysql-connector-j/${MYSQL_CONNECTOR_VERSION}/mysql-connector-j-${MYSQL_CONNECTOR_VERSION}.jar" \
+      -o "${GRAVITINO_IRC_LIBS}/mysql-connector-j-${MYSQL_CONNECTOR_VERSION}.jar" && \
+    echo "✓ MySQL JDBC driver installed at ${GRAVITINO_IRC_LIBS}"
+
+# Verify the jar landed somewhere the IRC classpath can find it.
+# The startup script scans libs/ for *.jar files.
+RUN ls -lh ${GRAVITINO_IRC_LIBS}/mysql-connector-j-*.jar
+

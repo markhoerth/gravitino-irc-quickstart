@@ -1,0 +1,287 @@
+###############################################################################
+# Gravitino IRC Multi-Engine Quickstart
+# Tests Iceberg REST Catalog capabilities across Spark, Trino, DuckDB,
+# and PyIceberg — all pointing directly at the Gravitino IRC endpoint.
+#
+# Start everything:   make up
+# Tear down + wipe:   make down-clean
+###############################################################################
+
+name: gravitino-irc
+
+x-aws-env: &aws-env
+  AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+  AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+  AWS_REGION: us-east-1
+
+x-irc-env: &irc-env
+  IRC_URI: http://gravitino-irc:9001/iceberg
+  IRC_WAREHOUSE: ${IRC_WAREHOUSE}
+
+networks:
+  irc-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  minio-data:
+  spark-ivy-cache:
+  jupyter-work:
+
+services:
+
+  # ── MySQL ──────────────────────────────────────────────────────────────────
+  # Stores Iceberg namespace/table metadata for the IRC.
+  # The IRC creates its own tables on first start (jdbc-initialize=true).
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    networks: [irc-net]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root",
+             "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── MinIO ──────────────────────────────────────────────────────────────────
+  # S3-compatible object store — stores all Iceberg data and metadata files.
+  # API:     http://localhost:9000
+  # Console: http://localhost:9002  (user: minioadmin / minioadmin123)
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    networks: [irc-net]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_API_PORT}:9000"      # S3 API
+      - "${MINIO_CONSOLE_PORT}:9001"  # MinIO Console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── MinIO Setup ────────────────────────────────────────────────────────────
+  # One-shot init container: creates the warehouse bucket and then exits.
+  minio-setup:
+    image: minio/mc:latest
+    container_name: minio-setup
+    networks: [irc-net]
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set minio http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+        mc mb --ignore-existing minio/$${MINIO_BUCKET};
+        mc anonymous set download minio/$${MINIO_BUCKET};
+        echo '✓ MinIO bucket $${MINIO_BUCKET} ready';
+      "
+    restart: "no"
+
+  # ── Gravitino Iceberg REST Catalog (IRC) ───────────────────────────────────
+  # The star of the show. Engines talk to this endpoint directly.
+  # REST endpoint: http://localhost:9001/iceberg
+  #
+  # Custom image adds the MySQL JDBC driver (not bundled by default).
+  # Config is supplied via mounted conf file + env vars.
+  gravitino-irc:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.irc
+    image: gravitino-irc-custom:latest
+    container_name: gravitino-irc
+    networks: [irc-net]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    ports:
+      - "${IRC_PORT}:9001"
+    environment:
+      GRAVITINO_MEM: ${IRC_MEM}
+      GRAVITINO_CATALOG_BACKEND: jdbc
+      GRAVITINO_URI: "jdbc:mysql://mysql:3306/iceberg_catalog?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      GRAVITINO_JDBC_DRIVER: com.mysql.cj.jdbc.Driver
+      GRAVITINO_JDBC_USER: iceberg
+      GRAVITINO_JDBC_PASSWORD: iceberg_password
+      GRAVITINO_WAREHOUSE: s3://warehouse/
+      GRAVITINO_IO_IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      GRAVITINO_S3_ENDPOINT: http://minio:9000
+      GRAVITINO_S3_PATH_STYLE_ACCESS: "true"
+      GRAVITINO_S3_REGION: us-east-1
+      GRAVITINO_S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      GRAVITINO_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      GRAVITINO_CREDENTIAL_PROVIDERS: s3-secret-key
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9001/iceberg/v1/config"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Gravitino Server + UI ──────────────────────────────────────────────────
+  # Provides the Gravitino management UI and metalake API.
+  # Engines do NOT talk to this — they use the IRC directly.
+  # UI: http://localhost:8090
+  gravitino:
+    image: apache/gravitino:latest
+    container_name: gravitino
+    networks: [irc-net]
+    depends_on:
+      gravitino-irc:
+        condition: service_healthy
+    ports:
+      - "${GRAVITINO_PORT}:8090"
+    environment:
+      GRAVITINO_MEM: ${GRAVITINO_MEM}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    restart: unless-stopped
+
+  # ── Spark ──────────────────────────────────────────────────────────────────
+  # Spark 3.5 + Iceberg runtime JARs + AWS bundle for MinIO.
+  # Configured to use Gravitino IRC as the catalog 'gravitino_irc'.
+  #
+  # Interactive shells (via Makefile):
+  #   make spark-sql     → spark-sql shell
+  #   make spark-shell   → spark-shell (Scala REPL)
+  #   make spark-pyspark → pyspark shell
+  #
+  # Run a demo script:
+  #   make spark-demo
+  spark:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.spark
+    image: gravitino-spark-custom:latest
+    container_name: spark
+    networks: [irc-net]
+    depends_on:
+      gravitino-irc:
+        condition: service_healthy
+    ports:
+      - "${SPARK_UI_PORT}:4040"    # Spark application UI (available when job runs)
+    environment:
+      <<: [*aws-env, *irc-env]
+      SPARK_HOME: /opt/spark
+    volumes:
+      - ./conf/spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./scripts/spark:/scripts:ro
+      - spark-ivy-cache:/root/.ivy2
+    command: ["tail", "-f", "/dev/null"]  # Keep alive; use 'make spark-*' to exec
+    restart: unless-stopped
+
+  # ── Trino ──────────────────────────────────────────────────────────────────
+  # Trino with iceberg connector pointing at Gravitino IRC via REST catalog.
+  # Interactive shell:  make trino-shell
+  # Run demo SQL:       make trino-demo
+  # Web UI:             http://localhost:8080
+  trino:
+    image: trinodb/trino:latest
+    container_name: trino
+    networks: [irc-net]
+    depends_on:
+      gravitino-irc:
+        condition: service_healthy
+    ports:
+      - "${TRINO_PORT}:8080"
+    volumes:
+      - ./conf/trino/config.properties:/etc/trino/config.properties:ro
+      - ./conf/trino/jvm.config:/etc/trino/jvm.config:ro
+      - ./conf/trino/catalog/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro
+      - ./conf/trino/node.properties:/etc/trino/node.properties:ro
+      - ./scripts/trino:/scripts:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    restart: unless-stopped
+
+  # ── Jupyter (PyIceberg + DuckDB) ───────────────────────────────────────────
+  # Notebook environment for interactive PyIceberg and DuckDB testing.
+  # http://localhost:8888  (no token in dev mode)
+  jupyter:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.python
+    image: gravitino-python-custom:latest
+    container_name: jupyter
+    networks: [irc-net]
+    depends_on:
+      gravitino-irc:
+        condition: service_healthy
+    ports:
+      - "${JUPYTER_PORT}:8888"
+    environment:
+      <<: [*aws-env, *irc-env]
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+    volumes:
+      - ./notebooks:/home/jovyan/notebooks
+      - ./scripts/pyiceberg:/home/jovyan/pyiceberg-scripts:ro
+      - ./scripts/duckdb:/home/jovyan/duckdb-scripts:ro
+      - jupyter-work:/home/jovyan/work
+    command: >
+      jupyter notebook
+        --ip=0.0.0.0
+        --port=8888
+        --no-browser
+        --NotebookApp.token="${JUPYTER_TOKEN}"
+        --NotebookApp.notebook_dir=/home/jovyan
+    restart: unless-stopped
+
+  # ── Python Runner ──────────────────────────────────────────────────────────
+  # Headless Python container for running scripts non-interactively.
+  # make pyiceberg-demo   → runs pyiceberg demo script
+  # make duckdb-demo      → runs duckdb demo script
+  python-runner:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.python
+    image: gravitino-python-custom:latest   # reuses same image as jupyter
+    container_name: python-runner
+    networks: [irc-net]
+    depends_on:
+      gravitino-irc:
+        condition: service_healthy
+    environment:
+      <<: [*aws-env, *irc-env]
+    volumes:
+      - ./scripts/pyiceberg:/app/pyiceberg:ro
+      - ./scripts/duckdb:/app/duckdb:ro
+    working_dir: /app
+    command: ["tail", "-f", "/dev/null"]
+    restart: unless-stopped

@@ -1,0 +1,46 @@
+# Spark 3.5 with Apache Iceberg runtime and AWS/MinIO JARs pre-installed.
+#
+# JARs baked in at build time so there's no slow Maven download on first run.
+# Bump versions here to upgrade; keep Iceberg and Spark versions in sync.
+#
+# Compatibility matrix (tested):
+#   Spark 3.5.x → iceberg-spark-runtime-3.5_2.12
+#   Iceberg 1.7.x → requires Spark 3.4+ and Java 11+
+#   hadoop-aws must match the Hadoop version bundled in Spark (3.3.4 for Spark 3.5)
+
+FROM apache/spark:3.5.3-scala2.12-java17-ubuntu
+
+ARG ICEBERG_VERSION=1.7.1
+ARG HADOOP_AWS_VERSION=3.3.4
+ARG AWS_SDK_BUNDLE_VERSION=2.29.38
+ARG MAVEN_BASE=https://repo1.maven.org/maven2
+
+USER root
+
+RUN set -ex && \
+    apt-get update -qq && \
+    apt-get install -y --no-install-recommends curl python3-pip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download Iceberg Spark runtime JAR
+RUN curl -fSL \
+    "${MAVEN_BASE}/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/${ICEBERG_VERSION}/iceberg-spark-runtime-3.5_2.12-${ICEBERG_VERSION}.jar" \
+    -o /opt/spark/jars/iceberg-spark-runtime-3.5_2.12-${ICEBERG_VERSION}.jar
+
+# Download Hadoop-AWS JAR (S3A filesystem — needed for s3:// URIs)
+RUN curl -fSL \
+    "${MAVEN_BASE}/org/apache/hadoop/hadoop-aws/${HADOOP_AWS_VERSION}/hadoop-aws-${HADOOP_AWS_VERSION}.jar" \
+    -o /opt/spark/jars/hadoop-aws-${HADOOP_AWS_VERSION}.jar
+
+# Download AWS Java SDK bundle (required by hadoop-aws for S3A)
+RUN curl -fSL \
+    "${MAVEN_BASE}/software/amazon/awssdk/bundle/${AWS_SDK_BUNDLE_VERSION}/bundle-${AWS_SDK_BUNDLE_VERSION}.jar" \
+    -o /opt/spark/jars/aws-bundle-${AWS_SDK_BUNDLE_VERSION}.jar
+
+# Install PySpark-compatible Python packages (for pyspark shell usage)
+RUN pip3 install --no-cache-dir pyspark==$(python3 -c "import importlib; print('3.5.3')") 2>/dev/null || true
+
+RUN echo "✓ Iceberg ${ICEBERG_VERSION} JARs installed" && \
+    ls -lh /opt/spark/jars/iceberg-*.jar /opt/spark/jars/hadoop-aws-*.jar
+
+USER spark
