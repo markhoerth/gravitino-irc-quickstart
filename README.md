@@ -14,22 +14,21 @@ demonstrating IRC's interoperability as a pure Iceberg REST spec implementation.
                          │   (IRC — spec endpoint /iceberg)   │
                          └──────────────┬─────────────────────┘
                                         │ Iceberg REST API
-           ┌────────────────────────────┼─────────────────────────┐
-           │                            │                          │
-    ┌──────┴──────┐             ┌───────┴──────┐          ┌───────┴──────┐
+           ┌────────────────────────────┼──────────────────────────┐
+           │                            │                           │
+    ┌──────┴──────┐             ┌───────┴──────┐          ┌────────┴─────┐
     │    Spark    │             │    Trino     │          │  PyIceberg   │
     │  (catalog:  │             │  (catalog:   │          │    (REST     │
-    │ gravitino   │             │   iceberg)   │          │   catalog)   │
-    │   _irc)     │             │              │          │              │
-    └─────────────┘             └──────────────┘          └─────┬────────┘
-                                                                 │ metadata lookup
-                                                          ┌──────┴────────┐
-                                                          │    DuckDB     │
-                                                          │ (reads from   │
-                                                          │  S3 directly) │
-                                                          └───────────────┘
+    │ gravitino   │             │  gravitino   │          │   catalog)   │
+    │   _irc)     │             │    _irc)     │          │              │
+    └─────────────┘             └──────────────┘          └──────────────┘
+                                                          ┌──────────────┐
+                                                          │    DuckDB    │
+                                                          │  (ATTACH via │
+                                                          │  IRC REST)   │
+                                                          └──────────────┘
            │                            │                          │
-           └────────────────────────────┼─────────────────────────┘
+           └────────────────────────────┼──────────────────────────┘
                                         │ S3 FileIO
                                  ┌──────┴──────┐
                                  │    MinIO    │
@@ -55,6 +54,9 @@ Engines connect to the IRC REST endpoint (`http://gravitino-irc:9001/iceberg`) d
 **not** through the Gravitino server API (`http://gravitino:8090`). The Gravitino server
 is included for its UI and metalake management, but is not in the query path.
 
+All four engines use the catalog name **`gravitino_irc`** — this is intentional and
+required for cross-engine view portability (see [Cross-Engine Views](#cross-engine-views)).
+
 ## Prerequisites
 
 - Docker Desktop (or Docker Engine + Compose plugin)
@@ -66,14 +68,11 @@ is included for its UI and metalake management, but is not in the query path.
 
 ```bash
 # Clone and start
-git clone https://github.com/<your-org>/gravitino-irc-quickstart
+git clone https://github.com/markhoerth/gravitino-irc-quickstart
 cd gravitino-irc-quickstart
 
-# Copy and review environment config (credentials, ports)
-cp .env.example .env
-
 # Build images and start all services (~3-5 min first run)
-make up
+docker compose up -d --build
 
 # Wait for health checks to pass (~60s), then run all demos
 make demo-all
@@ -100,14 +99,14 @@ MinIO credentials: `minioadmin` / `minioadmin123`
 make spark-demo        # Spark → creates demo_spark.sales
 make trino-demo        # Trino → creates demo_trino.orders
 make pyiceberg-demo    # PyIceberg → creates demo_pyiceberg.customers
-make duckdb-demo       # DuckDB → reads tables created above
+make duckdb-demo       # DuckDB → full read/write via native IRC ATTACH
 ```
 
 ### Validate cross-engine visibility
 ```bash
 make validate
 ```
-This confirms that tables written by one engine are readable by all others —
+Confirms that tables written by one engine are readable by all others —
 the core value-prop of the shared IRC catalog.
 
 ### Interactive shells
@@ -116,7 +115,8 @@ the core value-prop of the shared IRC catalog.
 make spark-sql         # Spark SQL REPL (gravitino_irc catalog pre-loaded)
 make spark-shell       # Spark Scala REPL
 make spark-pyspark     # PySpark Python REPL
-make trino-shell       # Trino CLI (iceberg catalog pre-loaded)
+make trino-shell       # Trino CLI (gravitino_irc catalog pre-loaded)
+make duckdb-shell      # DuckDB interactive SQL shell
 ```
 
 ### Jupyter Notebook
@@ -135,13 +135,13 @@ spark.sql.catalog.gravitino_irc.uri     = http://gravitino-irc:9001/iceberg
 Config: `conf/spark/spark-defaults.conf`
 
 ### Trino
-Catalog name: **`iceberg`**
+Catalog name: **`gravitino_irc`** (derived from filename `gravitino_irc.properties`)
 ```
 connector.name            = iceberg
 iceberg.catalog.type      = rest
 iceberg.rest-catalog.uri  = http://gravitino-irc:9001/iceberg
 ```
-Config: `conf/trino/catalog/iceberg.properties`
+Config: `conf/trino/catalog/gravitino_irc.properties`
 
 ### PyIceberg
 ```python
@@ -152,13 +152,69 @@ catalog = load_catalog("gravitino_irc", **{
 ```
 
 ### DuckDB
-DuckDB does not yet have a native IRC client. This quickstart uses PyIceberg to
-resolve table metadata locations, then passes those paths to DuckDB's
-`iceberg_scan()` function. DuckDB reads Iceberg data files directly from MinIO.
+DuckDB 1.4.x supports native IRC ATTACH — no metadata path lookups required:
+```sql
+ATTACH '' AS gravitino (
+    TYPE               iceberg,
+    ENDPOINT           'http://gravitino-irc:9001/iceberg',
+    AUTHORIZATION_TYPE 'none'
+);
+
+SELECT * FROM gravitino.demo_spark.sales;
+INSERT INTO gravitino.sandbox.test VALUES (1, 2);
+```
+DuckDB is a full read/write IRC citizen as of version 1.4.x.
+
+## Cross-Engine Views
+
+This quickstart demonstrates cross-engine Iceberg view portability — a capability
+that requires all engines to share the same catalog name.
+
+### How it works
+
+When an engine creates a view via the IRC, the Iceberg view spec stores the SQL
+along with a `default-catalog` field identifying the creating engine's catalog name.
+When another engine reads that view, it uses `default-catalog` to resolve unqualified
+table references in the view SQL.
+
+**This means all engines must use the same catalog name** for views to be portable.
+In this quickstart, all engines use `gravitino_irc`.
+
+### Cross-engine view matrix
+
+| View created by | Readable by Spark | Readable by Trino | Readable by DuckDB |
+|----------------|:-----------------:|:-----------------:|:-----------------:|
+| **Spark**      | ✅ | ❌ dialect rejection | ❌ not supported |
+| **Trino**      | ✅ same catalog name | ✅ | ❌ not supported |
+| **PyIceberg**  | ✅ | ✅ | ❌ not supported |
+
+**Trino → Spark view example:**
+```sql
+-- In Trino shell
+USE gravitino_irc.sandbox;
+CREATE VIEW my_view AS SELECT * FROM test WHERE x > 1;
+```
+```sql
+-- In Spark SQL — works because both use catalog name 'gravitino_irc'
+SELECT * FROM sandbox.my_view;
+```
+
+**Why Spark → Trino fails:** Trino enforces strict dialect checking and refuses
+to execute view SQL tagged with the `spark` dialect. There is currently no
+configuration property to override this in Trino 480.
+
+**Why DuckDB doesn't support views:** DuckDB's IRC ATTACH implementation
+(1.4.x) supports tables but not views. This is expected to improve in future releases.
 
 ## IRC Configuration (Gravitino Iceberg REST Server)
 
-The IRC is configured at `conf/gravitino-irc/gravitino-iceberg-rest-server.conf`:
+The IRC is configured via environment variables in `docker-compose.yml`.
+The startup script `rewrite_config.py` translates `GRAVITINO_*` environment
+variables into the server's configuration file at startup.
+
+**Important:** Do not mount a config file directly into the IRC container.
+The startup script rewrites the config file on every boot — a read-only
+bind mount will cause the container to fail.
 
 | Setting | Value |
 |---------|-------|
@@ -167,93 +223,115 @@ The IRC is configured at `conf/gravitino-irc/gravitino-iceberg-rest-server.conf`
 | Object store | MinIO (S3-compatible) |
 | Warehouse | `s3://warehouse/` |
 | Port | `9001` |
+| Credential provider | `s3-secret-key` (required for table creation) |
 
 The custom Dockerfile (`dockerfiles/Dockerfile.irc`) adds the MySQL JDBC driver
-to the upstream `apache/gravitino-iceberg-rest:latest` image, which doesn't
-bundle it by default.
+to the upstream `apache/gravitino-iceberg-rest:latest` image. The driver must be
+placed in `/root/gravitino-iceberg-rest-server/libs/` — not `/opt/gravitino/libs/`.
 
 ## Directory Structure
 
 ```
 gravitino-irc-quickstart/
 ├── docker-compose.yml              # All services
-├── .env                            # Editable config (ports, credentials)
+├── .env.example                    # Template config (copy to .env)
 ├── Makefile                        # Convenience targets
 ├── dockerfiles/
 │   ├── Dockerfile.irc              # Gravitino IRC + MySQL JDBC driver
-│   ├── Dockerfile.spark            # Spark + Iceberg JARs + AWS bundle
-│   └── Dockerfile.python           # PyIceberg + DuckDB + Jupyter
+│   ├── Dockerfile.spark            # Spark + Iceberg JARs + AWS SDK v2
+│   └── Dockerfile.python           # PyIceberg + DuckDB 1.4.x + Jupyter
 ├── conf/
 │   ├── gravitino-irc/
-│   │   └── gravitino-iceberg-rest-server.conf   # IRC backend config
+│   │   └── gravitino-iceberg-rest-server.conf   # Reference only (not mounted)
 │   ├── spark/
 │   │   └── spark-defaults.conf     # IRC catalog, S3 settings
 │   └── trino/
 │       ├── config.properties
 │       ├── jvm.config
+│       ├── node.properties
 │       └── catalog/
-│           └── iceberg.properties  # Trino → IRC via REST
+│           └── gravitino_irc.properties  # Trino → IRC via REST
 ├── scripts/
 │   ├── init/
 │   │   └── minio-init.sh           # MinIO bucket setup
 │   ├── spark/
-│   │   ├── irc_demo.py             # PySpark demo (submitted via spark-submit)
-│   │   └── irc_shell_demo.sql      # Spark SQL reference script
+│   │   ├── irc_demo.py             # PySpark demo
+│   │   └── irc_shell_demo.sql      # Spark SQL reference
 │   ├── trino/
 │   │   └── irc_demo.sql            # Trino demo SQL
 │   ├── pyiceberg/
-│   │   ├── irc_demo.py             # PyIceberg CRUD + schema evolution demo
+│   │   ├── irc_demo.py             # PyIceberg CRUD + schema evolution
 │   │   └── validate_cross_engine.py # Cross-engine visibility validator
 │   └── duckdb/
-│       └── irc_demo.py             # DuckDB via PyIceberg metadata resolution
+│       └── irc_demo.py             # DuckDB native ATTACH demo
 └── notebooks/
     └── 01_irc_exploration.ipynb    # Interactive Jupyter exploration
 ```
 
 ## Troubleshooting
 
-**IRC won't start / exits immediately**
-```bash
-make logs-irc
-```
-Most common cause: MySQL not ready yet. The IRC container waits for the
-`mysql` health check, but MySQL can take up to 30s to initialize on first run.
-`make restart-irc` after MySQL is healthy usually fixes this.
+**IRC won't start — `OSError: [Errno 16] Device or resource busy`**
+
+Do not mount a config file into the IRC container. The startup script
+`rewrite_config.py` tries to delete and rewrite the config file on every
+boot. A read-only bind mount prevents this. Configure the IRC using
+environment variables in `docker-compose.yml` instead.
+
+**IRC starts but MySQL driver not found**
+
+The MySQL JDBC driver must be in `/root/gravitino-iceberg-rest-server/libs/`.
+Check `dockerfiles/Dockerfile.irc` — the `GRAVITINO_IRC_LIBS` path must match
+the actual server directory, not `/opt/gravitino/libs/`.
 
 **`jdbc-initialize` failure on MySQL**
-The IRC tries to create Iceberg metadata tables in MySQL. If you see a
-`Table already exists` error, the DB was initialized previously.
-This is harmless — subsequent starts skip initialization.
+
+The IRC creates Iceberg metadata tables in MySQL on first boot. A
+`Table already exists` error on subsequent starts is harmless.
 
 **S3 / MinIO `NoSuchBucket` errors**
+
 The `minio-setup` container creates the `warehouse` bucket on startup.
-If it failed, run: `docker compose run --rm minio-setup`
+If it failed: `docker compose run --rm minio-setup`
 
-**Spark `ClassNotFoundException` for Iceberg**
-The Iceberg JARs are baked into the custom Spark image. Run `make build`
-to rebuild if the image was pulled without building.
+**Trino crash-loops on startup**
 
-**DuckDB `iceberg_scan` fails**
-DuckDB needs the metadata file path, not the table location. The demo
-script resolves this via PyIceberg. Ensure `make pyiceberg-demo` has
-run first so there's at least one table to scan.
+Check `docker compose logs trino` for defunct properties. Known removed
+properties in current Trino versions:
+- `query.max-total-memory-per-node` — removed, use `query.max-memory-per-node`
+- `iceberg.pushdown-filter-enabled` — removed
+- `iceberg.view-unknown-dialects-read.enabled` — does not exist
+
+**WSL2: `restart` fails with bind mount error**
+
+On WSL2 + Docker Desktop, `docker compose restart <service>` fails when
+bind-mounted config files have been edited. Always use
+`docker compose down && docker compose up -d` instead.
+
+**Trino `still initializing` for several minutes**
+
+Normal on WSL2. Trino can take 3-5 minutes to fully initialize after the
+health check passes. Keep retrying `make trino-shell` every 30 seconds.
 
 **Port conflicts**
-Edit `.env` to change any port, then `make down && make up`.
+
+Edit `.env` (copied from `.env.example`) to remap any port, then
+`docker compose down && docker compose up -d`.
 
 ## Known Limitations
 
-- **DuckDB Iceberg REST**: DuckDB does not natively speak the Iceberg REST protocol.
-  The workaround (PyIceberg metadata lookup → `iceberg_scan`) is stable but adds a
-  resolution step. Watch [duckdb/duckdb_iceberg](https://github.com/duckdb/duckdb_iceberg)
-  for native REST catalog support.
+- **Cross-engine views (Spark → Trino):** Trino refuses to execute view SQL
+  tagged with the `spark` dialect. No configuration override exists in Trino 480.
+  Trino-created views are readable by Spark when both use the same catalog name.
 
-- **IRC `jdbc-initialize` + multiple instances**: Setting `jdbc-initialize=true`
-  with multiple IRC replicas may cause race conditions on first boot. For multi-node
-  testing, initialize manually and set `jdbc-initialize=false`.
+- **DuckDB views:** DuckDB's IRC ATTACH does not yet expose Iceberg views.
+  Tables are fully supported for read and write.
 
-- **Gravitino IRC version**: Pinned to `latest` tag. Rebuild with `make build`
-  when upstream releases new versions to pick up fixes.
+- **IRC `jdbc-initialize` + multiple instances:** With multiple IRC replicas,
+  set `jdbc-initialize=false` after first boot and initialize the schema manually.
+
+- **Gravitino IRC pinned to `latest`:** Rebuild with `make build` when upstream
+  releases new versions. The MySQL JDBC driver version in `Dockerfile.irc` may
+  need updating for new MySQL server versions.
 
 ## Contributing
 
