@@ -35,6 +35,7 @@ spark.sql(f"SHOW NAMESPACES IN {CATALOG}").show()
 
 # ── 2. Create Table ───────────────────────────────────────────────────────────
 print(f"[2] Creating Iceberg table {CATALOG}.{SCHEMA}.{TABLE} ...")
+spark.sql(f"DROP TABLE IF EXISTS {CATALOG}.{SCHEMA}.{TABLE}" )
 spark.sql(f"""
     CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.{TABLE} (
         id        INT,

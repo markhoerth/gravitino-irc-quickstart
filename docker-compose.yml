@@ -220,7 +220,7 @@ services:
     volumes:
       - ./conf/trino/config.properties:/etc/trino/config.properties:ro
       - ./conf/trino/jvm.config:/etc/trino/jvm.config:ro
-      - ./conf/trino/catalog/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro
+      - ./conf/trino/catalog/gravitino_irc.properties:/etc/trino/catalog/gravitino_irc.properties:ro
       - ./conf/trino/node.properties:/etc/trino/node.properties:ro
       - ./scripts/trino:/scripts:ro
     healthcheck:

@@ -109,18 +109,18 @@ spark-sql-demo: ## Run the Spark SQL demo script interactively
 
 .PHONY: trino-shell
 trino-shell: ## Open Trino CLI shell (catalog: iceberg → Gravitino IRC)
-	@echo "$(BOLD)$(CYAN)Opening Trino CLI — catalog: iceberg$(RESET)"
-	@echo "  Tip: run 'SHOW SCHEMAS FROM iceberg;' to get started\n"
+	@echo "$(BOLD)$(CYAN)Opening Trino CLI — catalog: gravitino_irc$(RESET)"
+	@echo "  Tip: run 'SHOW SCHEMAS FROM gravitino_irc;' to get started\n"
 	$(COMPOSE) exec trino trino \
 	  --server http://localhost:8080 \
-	  --catalog iceberg
+	  --catalog gravitino_irc 
 
 .PHONY: trino-demo
 trino-demo: ## Run the Trino IRC demo SQL (creates demo_trino.orders)
 	@echo "$(BOLD)$(CYAN)Running Trino IRC demo...$(RESET)"
 	$(COMPOSE) exec trino trino \
 	  --server http://localhost:8080 \
-	  --catalog iceberg \
+	  --catalog gravitino_irc \
 	  --file /scripts/irc_demo.sql
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -136,6 +136,7 @@ pyiceberg-demo: ## Run PyIceberg IRC demo (creates demo_pyiceberg.customers)
 duckdb-demo: ## Run DuckDB IRC demo (reads Iceberg tables from MinIO)
 	@echo "$(BOLD)$(CYAN)Running DuckDB IRC demo...$(RESET)"
 	@echo "  Note: requires at least one other demo to have run first.\n"
+	$(COMPOSE) exec python-runner python3 /app/duckdb/irc_demo.py
 
 .PHONY: duckdb-shell
 duckdb-shell: ## Open DuckDB interactive SQL shell (in python-runner container)
