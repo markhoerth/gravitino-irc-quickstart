@@ -1,0 +1,21 @@
+# Flink configuration for Gravitino IRC Quickstart
+# Iceberg S3FileIO requires these settings at startup — they cannot be set via SQL session variables.
+
+jobmanager.rpc.address: flink-jobmanager
+taskmanager.numberOfTaskSlots: 2
+rest.address: flink-jobmanager
+
+# ── S3 / MinIO for Iceberg FileIO ─────────────────────────────────────────────
+# Iceberg uses its own S3FileIO which reads these properties at initialization.
+s3.endpoint: http://minio:9000
+s3.path-style-access: true
+s3.access-key: minioadmin
+s3.secret-key: minioadmin123
+s3.region: us-east-1
+
+# ── Memory ────────────────────────────────────────────────────────────────────
+jobmanager.memory.process.size: 1600m
+taskmanager.memory.process.size: 1728m
+
+# ── Execution ──────────────────────────────────────────────────────────────────
+execution.runtime-mode: batch

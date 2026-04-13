@@ -75,6 +75,10 @@ logs-spark: ## Tail Spark logs
 logs-trino: ## Tail Trino logs
 	$(COMPOSE) logs -f trino
 
+.PHONY: logs-flink
+logs-flink: ## Tail Flink JobManager and TaskManager logs
+	$(COMPOSE) logs -f flink-jobmanager flink-taskmanager
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Spark
 # ─────────────────────────────────────────────────────────────────────────────
@@ -122,6 +126,29 @@ trino-demo: ## Run the Trino IRC demo SQL (creates demo_trino.orders)
 	  --server http://localhost:8080 \
 	  --catalog gravitino_irc \
 	  --file /scripts/irc_demo.sql
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Flink
+# ─────────────────────────────────────────────────────────────────────────────
+
+PHONY: flink-sql
+flink-sql: ## Open interactive Flink SQL Client shell (against IRC)
+	@echo "$(BOLD)$(CYAN)Opening Flink SQL Client — catalog: gravitino_irc$(RESET)"
+	@echo "  Tip: run the CREATE CATALOG statement to get started"
+	@echo ""
+	@echo "  CREATE CATALOG gravitino_irc WITH ("
+	@echo "    'type'                 = 'iceberg',"
+	@echo "    'catalog-type'         = 'rest',"
+	@echo "    'uri'                  = 'http://gravitino-irc:9001/iceberg',"
+	@echo "    'io-impl'              = 'org.apache.iceberg.aws.s3.S3FileIO',"
+	@echo "    's3.endpoint'          = 'http://minio:9000',"
+	@echo "    's3.path-style-access' = 'true',"
+	@echo "    's3.access-key-id'     = 'minioadmin',"
+	@echo "    's3.secret-access-key' = 'minioadmin123'"
+	@echo "  );"
+	@echo ""
+	$(COMPOSE) exec flink-jobmanager /opt/flink/bin/sql-client.sh \
+	 --endpoint http://flink-jobmanager:8081 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PyIceberg + DuckDB (python-runner container)

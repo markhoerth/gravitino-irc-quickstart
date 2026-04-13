@@ -231,6 +231,70 @@ services:
       start_period: 45s
     restart: unless-stopped
 
+  # ── Flink JobManager ───────────────────────────────────────────────────────
+  # Flink cluster coordinator. SQL Client connects here to submit jobs.
+  # Web UI: http://localhost:8081
+  #
+  # Interactive SQL shell:  make flink-sql
+  #
+  flink-jobmanager:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.flink
+    image: gravitino-flink-custom:latest
+    container_name: flink-jobmanager
+    networks: [irc-net]
+    depends_on:
+      gravitino-irc:
+        condition: service_healthy
+    ports:
+      - "${FLINK_UI_PORT:-8081}:8081"
+    environment:
+      <<: [*aws-env, *irc-env]
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 1600m
+        taskmanager.memory.process.size: 1728m
+        taskmanager.numberOfTaskSlots: 2
+        execution.runtime-mode: batch
+        sql-client.execution.result-mode: tableau
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        s3.region: us-east-1
+    command: jobmanager
+    restart: unless-stopped
+
+  # ── Flink TaskManager ──────────────────────────────────────────────────────
+  # Flink worker node — executes query tasks dispatched by the JobManager.
+  #
+  flink-taskmanager:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.flink
+    image: gravitino-flink-custom:latest
+    container_name: flink-taskmanager
+    networks: [irc-net]
+    depends_on:
+      - flink-jobmanager
+    environment:
+      <<: [*aws-env, *irc-env]
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 1600m
+        taskmanager.memory.process.size: 1728m
+        taskmanager.numberOfTaskSlots: 2
+        execution.runtime-mode: batch
+        sql-client.execution.result-mode: tableau
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        s3.region: us-east-1
+    command: taskmanager
+    restart: unless-stopped
+
   # ── Jupyter (PyIceberg + DuckDB) ───────────────────────────────────────────
   # Notebook environment for interactive PyIceberg and DuckDB testing.
   # http://localhost:8888  (no token in dev mode)

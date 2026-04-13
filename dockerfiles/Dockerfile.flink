@@ -1,0 +1,51 @@
+# Flink with Apache Iceberg runtime JAR for IRC connectivity.
+#
+# Compatibility (tested):
+#   Flink 1.18.x → iceberg-flink-runtime-1.18 (default, matches Gravitino connector docs)
+#   Flink 1.19.x → iceberg-flink-runtime-1.19
+#   Iceberg 1.7.1 → requires Flink 1.18+ and Java 11+
+#
+# To build with Flink 1.19:
+#   docker build --build-arg FLINK_VERSION=1.19 --build-arg FLINK_RUNTIME=1.19 ...
+
+ARG FLINK_VERSION=1.18
+ARG FLINK_RUNTIME=1.18
+
+FROM flink:${FLINK_VERSION}-java11
+
+ARG FLINK_RUNTIME
+ARG ICEBERG_VERSION=1.7.1
+ARG MAVEN_BASE=https://repo1.maven.org/maven2
+
+USER root
+
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download Iceberg Flink runtime JAR
+RUN curl -fSL \
+    "${MAVEN_BASE}/org/apache/iceberg/iceberg-flink-runtime-${FLINK_RUNTIME}/${ICEBERG_VERSION}/iceberg-flink-runtime-${FLINK_RUNTIME}-${ICEBERG_VERSION}.jar" \
+    -o /opt/flink/lib/iceberg-flink-runtime-${FLINK_RUNTIME}-${ICEBERG_VERSION}.jar
+
+# Download AWS bundle for S3 support
+RUN curl -fSL \
+    "${MAVEN_BASE}/org/apache/iceberg/iceberg-aws-bundle/${ICEBERG_VERSION}/iceberg-aws-bundle-${ICEBERG_VERSION}.jar" \
+    -o /opt/flink/lib/iceberg-aws-bundle-${ICEBERG_VERSION}.jar
+
+# Hadoop is required by Iceberg but not bundled in Flink
+ARG HADOOP_VERSION=3.3.4
+RUN curl -fSL \
+    "${MAVEN_BASE}/org/apache/flink/flink-shaded-hadoop-2-uber/2.8.3-10.0/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar" \
+    -o /opt/flink/lib/flink-shaded-hadoop-2-uber.jar
+
+RUN echo "✓ Iceberg ${ICEBERG_VERSION} JARs installed" && \
+    ls -lh /opt/flink/lib/iceberg-*.jar /opt/flink/lib/flink-shaded-hadoop*.jar
+
+# Bake in S3/MinIO configuration for Iceberg FileIO
+# These are picked up at startup and cannot be set via SQL session variables
+# Flink 1.18 uses flink-conf.yaml; Flink 1.19+ uses config.yaml
+COPY conf/flink/flink-conf.yaml /opt/flink/conf/flink-conf.yaml
+COPY conf/flink/flink-conf.yaml /opt/flink/conf/config.yaml
+
+USER flink
