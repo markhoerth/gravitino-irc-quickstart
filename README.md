@@ -1,7 +1,7 @@
 # Gravitino IRC Multi-Engine Quickstart
 
 Tests the [Apache Gravitino](https://gravitino.apache.org/) Iceberg REST Catalog (IRC)
-across four client engines: **Spark**, **Trino**, **DuckDB**, and **PyIceberg**.
+across five client engines: **Spark**, **Trino**, **Flink**, **DuckDB**, and **PyIceberg**.
 All engines point directly at the IRC endpoint — not the Gravitino server API —
 demonstrating IRC's interoperability as a pure Iceberg REST spec implementation.
 
@@ -14,19 +14,19 @@ demonstrating IRC's interoperability as a pure Iceberg REST spec implementation.
                          │   (IRC — spec endpoint /iceberg)   │
                          └──────────────┬─────────────────────┘
                                         │ Iceberg REST API
-           ┌────────────────────────────┼──────────────────────────┐
-           │                            │                           │
-    ┌──────┴──────┐             ┌───────┴──────┐          ┌────────┴─────┐
-    │    Spark    │             │    Trino     │          │  PyIceberg   │
-    │  (catalog:  │             │  (catalog:   │          │    (REST     │
-    │ gravitino   │             │  gravitino   │          │   catalog)   │
-    │   _irc)     │             │    _irc)     │          │              │
-    └─────────────┘             └──────────────┘          └──────────────┘
-                                                          ┌──────────────┐
-                                                          │    DuckDB    │
-                                                          │  (ATTACH via │
-                                                          │  IRC REST)   │
-                                                          └──────────────┘
+           ┌────────────────────────────┼───────────────────────────────┐
+           │                            │                │               │
+    ┌──────┴──────┐             ┌───────┴──────┐  ┌─────┴──────┐  ┌────┴─────┐
+    │    Spark    │             │    Trino     │  │   Flink    │  │PyIceberg │
+    │  (catalog:  │             │  (catalog:   │  │ (catalog:  │  │  (REST   │
+    │ gravitino   │             │  gravitino   │  │ gravitino  │  │ catalog) │
+    │   _irc)     │             │    _irc)     │  │   _irc)    │  │          │
+    └─────────────┘             └──────────────┘  └────────────┘  └──────────┘
+                                                                  ┌──────────┐
+                                                                  │  DuckDB  │
+                                                                  │ (ATTACH  │
+                                                                  │ via IRC) │
+                                                                  └──────────┘
            │                            │                          │
            └────────────────────────────┼──────────────────────────┘
                                         │ S3 FileIO
@@ -85,6 +85,7 @@ make demo-all
 | **Gravitino UI**     | http://localhost:8090                            | Catalog management UI          |
 | **IRC REST API**     | http://localhost:9001/iceberg                    | Iceberg REST catalog endpoint  |
 | **Trino UI**         | http://localhost:8080                            | Query history, cluster status  |
+| **Flink UI**         | http://localhost:8081                            | Job status, TaskManager info   |
 | **Jupyter**          | http://localhost:8888                            | PyIceberg + DuckDB notebooks   |
 | **MinIO Console**    | http://localhost:9002                            | Browse data files in S3        |
 | **MySQL**            | localhost:3306                                   | Iceberg metadata store         |
@@ -116,6 +117,7 @@ make spark-sql         # Spark SQL REPL (gravitino_irc catalog pre-loaded)
 make spark-shell       # Spark Scala REPL
 make spark-pyspark     # PySpark Python REPL
 make trino-shell       # Trino CLI (gravitino_irc catalog pre-loaded)
+make flink-sql         # Flink SQL Client (run CREATE CATALOG to connect)
 make duckdb-shell      # DuckDB interactive SQL shell
 ```
 
@@ -142,6 +144,28 @@ iceberg.catalog.type      = rest
 iceberg.rest-catalog.uri  = http://gravitino-irc:9001/iceberg
 ```
 Config: `conf/trino/catalog/gravitino_irc.properties`
+
+### Flink
+Catalog name: **`gravitino_irc`**
+
+Unlike Spark and Trino, Flink requires the catalog to be registered per-session via SQL DDL.
+Run the following in the Flink SQL Client after `make flink-sql`:
+
+```sql
+CREATE CATALOG gravitino_irc WITH (
+  'type'                 = 'iceberg',
+  'catalog-type'         = 'rest',
+  'uri'                  = 'http://gravitino-irc:9001/iceberg',
+  'io-impl'              = 'org.apache.iceberg.aws.s3.S3FileIO',
+  's3.endpoint'          = 'http://minio:9000',
+  's3.path-style-access' = 'true',
+  's3.access-key-id'     = 'minioadmin',
+  's3.secret-access-key' = 'minioadmin123'
+);
+USE CATALOG gravitino_irc;
+```
+
+Config: `conf/flink/flink-conf.yaml`
 
 ### PyIceberg
 ```python
@@ -239,12 +263,15 @@ gravitino-irc-quickstart/
 ├── dockerfiles/
 │   ├── Dockerfile.irc              # Gravitino IRC + MySQL JDBC driver
 │   ├── Dockerfile.spark            # Spark + Iceberg JARs + AWS SDK v2
+│   ├── Dockerfile.flink            # Flink 1.18 + Iceberg JARs + Hadoop shim
 │   └── Dockerfile.python           # PyIceberg + DuckDB 1.4.x + Jupyter
 ├── conf/
 │   ├── gravitino-irc/
 │   │   └── gravitino-iceberg-rest-server.conf   # Reference only (not mounted)
 │   ├── spark/
 │   │   └── spark-defaults.conf     # IRC catalog, S3 settings
+│   ├── flink/
+│   │   └── flink-conf.yaml         # Memory, batch mode, S3 settings
 │   └── trino/
 │       ├── config.properties
 │       ├── jvm.config
@@ -337,7 +364,7 @@ Edit `.env` (copied from `.env.example`) to remap any port, then
 
 PRs welcome. Please file issues for:
 - Config bugs (wrong property names, version incompatibilities)
-- New engine integrations (Flink, StarRocks, etc.)
+- New engine integrations (StarRocks, Doris, etc.)
 - New test scenarios (schema evolution, MERGE, time travel)
 
 ## License
