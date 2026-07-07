@@ -81,12 +81,18 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plu
 sudo usermod -aG docker $USER
 newgrp docker   # or log out and back in
 
-# Clone and start
+# Clone and configure
 git clone https://github.com/markhoerth/gravitino-irc-quickstart
 cd gravitino-irc-quickstart
+cp .env.example .env
+
 # Build images and start all services (~3-5 min first run)
 docker compose up -d --build
-# Wait for health checks to pass (~60s), then run all demos
+
+# Wait for health checks to pass (~60s), then verify
+docker compose ps
+
+# Run all demos once mysql, minio, and gravitino-irc show (healthy)
 make demo-all
 ```
 
