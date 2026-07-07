@@ -67,6 +67,7 @@ required for cross-engine view portability (see [Cross-Engine Views](#cross-engi
 ## Quick Start
 
 ```bash
+# on fresh EC2 instance
 sudo apt-get update
 sudo apt-get install -y git make ca-certificates curl
 
