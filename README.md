@@ -5,7 +5,7 @@ across five client engines: **Spark**, **Trino**, **Flink**, **DuckDB**, and **P
 All engines point directly at the IRC endpoint — not the Gravitino server API —
 demonstrating IRC's interoperability as a pure Iceberg REST spec implementation.
 
-### Key design decision
+### Description
 Engines connect to the IRC REST endpoint (`http://gravitino-irc:9001/iceberg`) directly. The Gravitino server
 is included for its UI and metalake management, but is not in the query path.
 
