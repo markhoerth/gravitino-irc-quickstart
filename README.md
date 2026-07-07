@@ -50,6 +50,12 @@ docker compose ps
 
 # Run all demos once mysql, minio, and gravitino-irc show (healthy)
 make demo-all
+
+# verify demo namespace demo_spark
+curl -s http://localhost:9001/iceberg/v1/namespaces/demo_spark/tables | jq
+
+# verify the Gravitino server itself and its version
+curl -s http://localhost:8090/api/version | jq
 ```
 
 ## Services & URLs
