@@ -59,10 +59,9 @@ required for cross-engine view portability (see [Cross-Engine Views](#cross-engi
 
 ## Prerequisites
 
-- Docker Desktop (or Docker Engine + Compose plugin)
-- Minimum **8 GB RAM** allocated to Docker
-- Minimum **4 CPU cores** recommended
-- Ports free: `8080`, `8090`, `8888`, `9000`, `9001`, `9002`, `3306`
+Ubuntu 22.04/24.04:
+    sudo apt-get update && sudo apt-get install -y git make docker.io docker-compose-v2
+    sudo usermod -aG docker $USER && newgrp docker
 
 ## Quick Start
 
