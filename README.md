@@ -67,15 +67,18 @@ required for cross-engine view portability (see [Cross-Engine Views](#cross-engi
 ## Quick Start
 
 ```bash
-# Clone and start
-git clone https://github.com/markhoerth/gravitino-irc-quickstart
-cd gravitino-irc-quickstart
+sudo apt-get update
+sudo apt-get install -y git make ca-certificates curl
 
-# Build images and start all services (~3-5 min first run)
-docker compose up -d --build
+# Docker Engine + Compose plugin (official repo, not the old docker.io package)
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-# Wait for health checks to pass (~60s), then run all demos
-make demo-all
+sudo usermod -aG docker $USER
+newgrp docker   # or log out and back in
 ```
 
 ## Services & URLs
