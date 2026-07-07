@@ -5,53 +5,8 @@ across five client engines: **Spark**, **Trino**, **Flink**, **DuckDB**, and **P
 All engines point directly at the IRC endpoint — not the Gravitino server API —
 demonstrating IRC's interoperability as a pure Iceberg REST spec implementation.
 
-## Architecture
-
-```
-                         ┌────────────────────────────────────┐
-                         │   Gravitino Iceberg REST Catalog   │
-                         │       http://localhost:9001        │
-                         │   (IRC — spec endpoint /iceberg)   │
-                         └──────────────┬─────────────────────┘
-                                        │ Iceberg REST API
-           ┌────────────────────────────┼───────────────────────────────┐
-           │                            │                │               │
-    ┌──────┴──────┐             ┌───────┴──────┐  ┌─────┴──────┐  ┌────┴─────┐
-    │    Spark    │             │    Trino     │  │   Flink    │  │PyIceberg │
-    │  (catalog:  │             │  (catalog:   │  │ (catalog:  │  │  (REST   │
-    │ gravitino   │             │  gravitino   │  │ gravitino  │  │ catalog) │
-    │   _irc)     │             │    _irc)     │  │   _irc)    │  │          │
-    └─────────────┘             └──────────────┘  └────────────┘  └──────────┘
-                                                                  ┌──────────┐
-                                                                  │  DuckDB  │
-                                                                  │ (ATTACH  │
-                                                                  │ via IRC) │
-                                                                  └──────────┘
-           │                            │                          │
-           └────────────────────────────┼──────────────────────────┘
-                                        │ S3 FileIO
-                                 ┌──────┴──────┐
-                                 │    MinIO    │
-                                 │  warehouse  │
-                                 │  (s3://     │
-                                 │  warehouse) │
-                                 └──────┬──────┘
-                                        │ JDBC metadata
-                                 ┌──────┴──────┐
-                                 │    MySQL    │
-                                 │  (Iceberg   │
-                                 │  meta tables│
-                                 └─────────────┘
-
-┌──────────────────────┐
-│  Gravitino Server    │  ← UI only (not in query path)
-│  http://localhost:8090│    used for catalog management
-└──────────────────────┘
-```
-
 ### Key design decision
-Engines connect to the IRC REST endpoint (`http://gravitino-irc:9001/iceberg`) directly,
-**not** through the Gravitino server API (`http://gravitino:8090`). The Gravitino server
+Engines connect to the IRC REST endpoint (`http://gravitino-irc:9001/iceberg`) directly. The Gravitino server
 is included for its UI and metalake management, but is not in the query path.
 
 All four engines use the catalog name **`gravitino_irc`** — this is intentional and
