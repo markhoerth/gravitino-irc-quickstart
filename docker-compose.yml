@@ -126,19 +126,19 @@ services:
       - "${IRC_PORT}:9001"
     environment:
       GRAVITINO_MEM: ${IRC_MEM}
-      GRAVITINO_CATALOG_BACKEND: jdbc
-      GRAVITINO_URI: "jdbc:mysql://mysql:3306/iceberg_catalog?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
-      GRAVITINO_JDBC_DRIVER: com.mysql.cj.jdbc.Driver
-      GRAVITINO_JDBC_USER: iceberg
-      GRAVITINO_JDBC_PASSWORD: iceberg_password
-      GRAVITINO_WAREHOUSE: s3://warehouse/
-      GRAVITINO_IO_IMPL: org.apache.iceberg.aws.s3.S3FileIO
-      GRAVITINO_S3_ENDPOINT: http://minio:9000
-      GRAVITINO_S3_PATH_STYLE_ACCESS: "true"
-      GRAVITINO_S3_REGION: us-east-1
-      GRAVITINO_S3_ACCESS_KEY: ${MINIO_ROOT_USER}
-      GRAVITINO_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      GRAVITINO_CREDENTIAL_PROVIDERS: s3-secret-key
+      GRAVITINO_ICEBERG_REST_CATALOG_BACKEND: jdbc
+      GRAVITINO_ICEBERG_REST_URI: "jdbc:mysql://mysql:3306/iceberg_catalog?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      GRAVITINO_ICEBERG_REST_JDBC_DRIVER: com.mysql.cj.jdbc.Driver
+      GRAVITINO_ICEBERG_REST_JDBC_USER: iceberg
+      GRAVITINO_ICEBERG_REST_JDBC_PASSWORD: iceberg_password
+      GRAVITINO_ICEBERG_REST_WAREHOUSE: s3://warehouse/
+      GRAVITINO_ICEBERG_REST_IO_IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      GRAVITINO_ICEBERG_REST_S3_ENDPOINT: http://minio:9000
+      GRAVITINO_ICEBERG_REST_S3_PATH_STYLE_ACCESS: "true"
+      GRAVITINO_ICEBERG_REST_S3_REGION: us-east-1
+      GRAVITINO_ICEBERG_REST_S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      GRAVITINO_ICEBERG_REST_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      GRAVITINO_ICEBERG_REST_CREDENTIAL_PROVIDERS: s3-secret-key
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9001/iceberg/v1/config"]
       interval: 15s

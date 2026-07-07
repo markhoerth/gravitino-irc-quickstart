@@ -17,7 +17,7 @@ USER root
 # In the Apache Docker image, GRAVITINO_HOME is /opt/gravitino and the
 # standalone IRC package places JARs in ${GRAVITINO_HOME}/libs/.
 # If your image differs, adjust the DEST_DIR below.
-ENV GRAVITINO_IRC_LIBS=/root/gravitino-iceberg-rest-server/libs
+ENV GRAVITINO_IRC_LIBS=/opt/gravitino-iceberg-rest-server/libs
 
 RUN set -ex && \
     mkdir -p ${GRAVITINO_IRC_LIBS} && \
