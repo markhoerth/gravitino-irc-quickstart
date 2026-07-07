@@ -60,8 +60,10 @@ required for cross-engine view portability (see [Cross-Engine Views](#cross-engi
 ## Prerequisites
 
 Ubuntu 22.04/24.04:
+```bash
     sudo apt-get update && sudo apt-get install -y git make docker.io docker-compose-v2
     sudo usermod -aG docker $USER && newgrp docker
+```
 
 ## Quick Start
 
